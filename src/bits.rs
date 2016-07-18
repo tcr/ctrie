@@ -16,19 +16,31 @@ impl Bits for usize {
 
     #[inline(always)]
     fn get(&self, loc: usize) -> bool {
-        if (*self & (1 << loc)) != 0  { true } else { false }
+        if (*self & (1 << loc)) != 0 {
+            true
+        } else {
+            false
+        }
     }
 
     #[cfg(target_pointer_width = "32")]
     #[inline(always)]
     fn count(&self, offset: usize) -> usize {
-        if offset == 32 { 0 } else { ((*self >> offset) as u32).count_ones() as usize }
+        if offset == 32 {
+            0
+        } else {
+            ((*self >> offset) as u32).count_ones() as usize
+        }
     }
 
     #[cfg(target_pointer_width = "64")]
     #[inline(always)]
     fn count(&self, offset: usize) -> usize {
-        if offset == 64 { 0 } else { ((*self >> offset) as u64).count_ones() as usize }
+        if offset == 64 {
+            0
+        } else {
+            ((*self >> offset) as u64).count_ones() as usize
+        }
     }
 }
 
@@ -68,8 +80,8 @@ mod bench {
 
     fn bit_count(bitmap: &Bitv, offset: usize) -> usize {
         bitmap.iter()
-              .skip(offset + 1)
-              .filter(|x| *x)
-              .count()
+            .skip(offset + 1)
+            .filter(|x| *x)
+            .count()
     }
 }

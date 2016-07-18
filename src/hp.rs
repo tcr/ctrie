@@ -1,35 +1,34 @@
-/*!
- * TODO:
- * ======
- * - (N, 1) Delete HazardList<T> after it's done being used.
- *   See hamt.rs for the solution to this.
- * - (D, 3) Write a version of local_delete in Hp::delete_scan()
- *   that allows for multiple HazardList<T>'s to exist at
- *   once.
- *      - This can be solved by making it a hashmap of
- *      (key, val) pairs; where the key is HazardList's
- *      address and the val is a list of addresses to be
- *      freed. This is a crappy method though.
- * - (N, 3) Cleanup task local delete list when a task exits.
- *      - This most likely involves a cleanup function being executed when
- *        the task quits. A function that moves the task-local list to a
- *        global list that allows other tasks to inherit the garabage of
- *        the dead task.
- * - (N, 1) Use memory contention managed CAS in impl Hp<T> as the
- *   global CAS (HazardList does a lot of ops that could use it).
- * - (N, 1) In delete_scan remove entry from hashmap when it's
- *   vec.len() is 0.
- * - (N, 1) Reformat the functioning of the swap function.
- *
- * Credit
- * =======
- * Andrei Alexandrescu and Maged Michael (2004).
- *  "Lock-Free Data Structures with Hazard Pointers". Dr Dobbs.
- *
- * Dave Dice, Danny Hendler, Ilya Mirsky (2013).
- *  "Lightweight Contention Management for Efficient Compare-and-Swap Operations".
- *  arXiv:1305.5800.
- */
+//! TODO:
+//! ======
+//! - (N, 1) Delete HazardList<T> after it's done being used.
+//!   See hamt.rs for the solution to this.
+//! - (D, 3) Write a version of local_delete in Hp::delete_scan()
+//!   that allows for multiple HazardList<T>'s to exist at
+//!   once.
+//!      - This can be solved by making it a hashmap of
+//!      (key, val) pairs; where the key is HazardList's
+//!      address and the val is a list of addresses to be
+//!      freed. This is a crappy method though.
+//! - (N, 3) Cleanup task local delete list when a task exits.
+//!      - This most likely involves a cleanup function being executed when
+//!        the task quits. A function that moves the task-local list to a
+//!        global list that allows other tasks to inherit the garabage of
+//!        the dead task.
+//! - (N, 1) Use memory contention managed CAS in impl Hp<T> as the
+//!   global CAS (HazardList does a lot of ops that could use it).
+//! - (N, 1) In delete_scan remove entry from hashmap when it's
+//!   vec.len() is 0.
+//! - (N, 1) Reformat the functioning of the swap function.
+//!
+//! Credit
+//! =======
+//! Andrei Alexandrescu and Maged Michael (2004).
+//!  "Lock-Free Data Structures with Hazard Pointers". Dr Dobbs.
+//!
+//! Dave Dice, Danny Hendler, Ilya Mirsky (2013).
+//!  "Lightweight Contention Management for Efficient Compare-and-Swap Operations".
+//!  arXiv:1305.5800.
+//!
 
 use stable_borrow_state::{borrow_state, BorrowState};
 use std::collections::{HashMap, HashSet};
@@ -49,12 +48,14 @@ use std::ops::Deref;
 pub struct ProtectedPointer<T> {
     _is_loaded: bool,
     _inner_ptr: *mut HpInner<T>,
-    _inner_val: *mut InnerProtect<T>
+    _inner_val: *mut InnerProtect<T>,
 }
 
 impl<T> Drop for ProtectedPointer<T> {
     fn drop(&mut self) {
-        unsafe { (*self._inner_val).release(); }
+        unsafe {
+            (*self._inner_val).release();
+        }
     }
 }
 
@@ -78,8 +79,7 @@ impl<T> ProtectedPointer<T> {
             ProtectedPointer {
                 _is_loaded: false,
                 _inner_ptr: hp_ref._inner_ptr,
-                _inner_val: (*(*hp_ref._inner_ptr)._head)
-                            .get_protector(null())
+                _inner_val: (*(*hp_ref._inner_ptr)._head).get_protector(null()),
             }
         }
     }
@@ -88,7 +88,9 @@ impl<T> ProtectedPointer<T> {
     /// Does nothing otherwise.
     #[inline(always)]
     pub fn swap(&mut self, other: &mut ProtectedPointer<T>) {
-        if !other._is_loaded && self._is_loaded { mem::swap(self, other); }
+        if !other._is_loaded && self._is_loaded {
+            mem::swap(self, other);
+        }
     }
 
     /// Loads the current value of the location the pointer is pointing to.
@@ -108,7 +110,7 @@ impl<T> ProtectedPointer<T> {
                 (*self._inner_val).ptr = (*self._inner_ptr).get_data_ptr();
 
                 if ((*self._inner_val).ptr as usize) ==
-                    ((*self._inner_ptr).get_data_ptr() as usize) {
+                   ((*self._inner_ptr).get_data_ptr() as usize) {
                     break;
                 }
             }
@@ -145,10 +147,10 @@ impl<T> ProtectedPointer<T> {
  * A pointer that needs to be protected in order to read/write
  */
 pub struct Hp<T> {
-    _inner_ptr: *mut HpInner<T>
+    _inner_ptr: *mut HpInner<T>,
 }
 
-unsafe impl<T: 'static> Send for Hp<T> { }
+unsafe impl<T: 'static> Send for Hp<T> {}
 
 impl<T> Clone for Hp<T> {
     fn clone(&self) -> Hp<T> {
@@ -163,7 +165,7 @@ impl<T> Drop for Hp<T> {
     fn drop(&mut self) {
         unsafe {
             // If this was the last Hp pointing to HpInner delete everything.
-            if (*self._inner_ptr)._inbound.fetch_sub(1, Ordering::Relaxed)  == 0 {
+            if (*self._inner_ptr)._inbound.fetch_sub(1, Ordering::Relaxed) == 0 {
 
                 // Safely delete internal data.
                 let data = self.get_data_ptr();
@@ -187,7 +189,7 @@ impl<T> Hp<T> {
             _head: unsafe { mem::transmute::<_, *mut HazardList<T>>(new_head) },
             _inbound: AtomicUsize::new(1),
             _outbound: AtomicUsize::new(1),
-            _data_ptr: AtomicPtr::new(unsafe { mem::transmute::<_, *mut T>(Box::new(data)) })
+            _data_ptr: AtomicPtr::new(unsafe { mem::transmute::<_, *mut T>(Box::new(data)) }),
         });
 
         Hp { _inner_ptr: unsafe { mem::transmute::<_, *mut HpInner<T>>(new_inner) } }
@@ -204,7 +206,7 @@ impl<T> Hp<T> {
             _head: unsafe { (*self._inner_ptr)._head },
             _inbound: AtomicUsize::new(1),
             _outbound: AtomicUsize::new(1),
-            _data_ptr: AtomicPtr::new(unsafe { mem::transmute::<_, *mut T>(Box::new(data)) })
+            _data_ptr: AtomicPtr::new(unsafe { mem::transmute::<_, *mut T>(Box::new(data)) }),
         });
 
         Hp { _inner_ptr: unsafe { mem::transmute::<_, *mut HpInner<T>>(new_inner) } }
@@ -227,7 +229,7 @@ struct HpInner<T> {
     _head: *mut HazardList<T>,
     _inbound: AtomicUsize,
     _outbound: AtomicUsize,
-    _data_ptr: AtomicPtr<T>
+    _data_ptr: AtomicPtr<T>,
 }
 
 struct LocalStorage<T: Clone> {
@@ -236,18 +238,14 @@ struct LocalStorage<T: Clone> {
 
 impl<T: Clone> LocalStorage<T> {
     fn new() -> LocalStorage<T> {
-        LocalStorage {
-            inner: UnsafeCell::new(None),
-        }
+        LocalStorage { inner: UnsafeCell::new(None) }
     }
 
     fn get(&self) -> Option<Ref<T>> {
         unsafe {
             match *self.inner.get() {
-                Some(ref i) => {
-                    Some(i.borrow())
-                },
-                None => None
+                Some(ref i) => Some(i.borrow()),
+                None => None,
             }
         }
     }
@@ -258,9 +256,7 @@ impl<T: Clone> LocalStorage<T> {
                 Some(i) => {
                     *self.inner.get() = Some(RefCell::new(i));
                 }
-                None => {
-                    *self.inner.get() = None
-                }
+                None => *self.inner.get() = None,
             }
         }
     }
@@ -326,7 +322,7 @@ impl<T> HpInner<T> {
     unsafe fn delete_scan(&self, add: *const T) {
         use std::collections::hash_map::Entry;
 
-        //local_data_key!(local_delete: RefCell<HashMap<usize, Vec<(usize, usize)>>>);
+        // local_data_key!(local_delete: RefCell<HashMap<usize, Vec<(usize, usize)>>>);
         thread_local!(static LOCAL_DELETE: LocalStorage<RefCell<HashMap<usize, Vec<(usize, usize)>>>> = LocalStorage::new());
 
         let head_size = self.get_hazard_list().length.load(Ordering::Relaxed);
@@ -425,22 +421,24 @@ impl<T> HpInner<T> {
 struct InnerProtect<T> {
     active: AtomicIsize,
     ptr: *const T,
-    next: *mut InnerProtect<T>
+    next: *mut InnerProtect<T>,
 }
 
 impl<T> InnerProtect<T> {
     #[inline(always)]
     fn new() -> *mut InnerProtect<T> {
-        let new_inner: Box<InnerProtect<T>> =
-            Box::new(InnerProtect {  active: AtomicIsize::new(1),
-                                ptr: null(),
-                                next: null_mut() });
+        let new_inner: Box<InnerProtect<T>> = Box::new(InnerProtect {
+            active: AtomicIsize::new(1),
+            ptr: null(),
+            next: null_mut(),
+        });
         unsafe { mem::transmute::<_, *mut InnerProtect<T>>(new_inner) }
     }
 
     #[inline(always)]
     unsafe fn acquire(&mut self) -> bool {
-        self.active.load(Ordering::Relaxed) == 0 && self.active.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+        self.active.load(Ordering::Relaxed) == 0 &&
+        self.active.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed).is_ok()
     }
 
     #[inline(always)]
@@ -457,7 +455,7 @@ impl<T> InnerProtect<T> {
  */
 struct HazardList<T> {
     length: AtomicUsize,
-    hazards: AtomicPtr<InnerProtect<T>>
+    hazards: AtomicPtr<InnerProtect<T>>,
 }
 
 impl<T> HazardList<T> {
@@ -465,7 +463,7 @@ impl<T> HazardList<T> {
     fn new() -> HazardList<T> {
         HazardList {
             length: AtomicUsize::new(0),
-            hazards: AtomicPtr::new(null_mut())
+            hazards: AtomicPtr::new(null_mut()),
         }
     }
 
@@ -491,12 +489,18 @@ impl<T> HazardList<T> {
         // Insert new protector
         loop {
             hlist = self.hazards.load(Ordering::Relaxed);
-            unsafe { (*new_protector).next = hlist; }
+            unsafe {
+                (*new_protector).next = hlist;
+            }
 
-            if self.hazards.compare_and_swap(hlist, new_protector, Ordering::Relaxed) == hlist { break; }
+            if self.hazards.compare_and_swap(hlist, new_protector, Ordering::Relaxed) == hlist {
+                break;
+            }
         }
 
-        unsafe { (*new_protector).ptr = ele; }
+        unsafe {
+            (*new_protector).ptr = ele;
+        }
         new_protector
     }
 }
@@ -523,23 +527,24 @@ mod tests {
                 let mut value_ptr = ProtectedPointer::new(&b_lis);
 
                 for x in 0..1000 {
-                loop {
-                    // Read in the current state of Hp<T> and acquire a
-                    // local verison of Hp<T> so we can modify the structure.
-                    value_ptr.load();
+                    loop {
+                        // Read in the current state of Hp<T> and acquire a
+                        // local verison of Hp<T> so we can modify the structure.
+                        value_ptr.load();
 
-                    // Create a new local state.
-                    let mut new_vec = value_ptr.clone();
+                        // Create a new local state.
+                        let mut new_vec = value_ptr.clone();
 
-                    // Modify the local state.
-                    new_vec.push(x);
+                        // Modify the local state.
+                        new_vec.push(x);
 
-                    // Attempt to update global state with the local one.
-                    match value_ptr.replace(new_vec) {
-                        Ok(_) => break,
-                        _ => ()
-                    };
-                }}
+                        // Attempt to update global state with the local one.
+                        match value_ptr.replace(new_vec) {
+                            Ok(_) => break,
+                            _ => (),
+                        };
+                    }
+                }
 
             }));
         }
@@ -552,7 +557,9 @@ mod tests {
             value_ptr.load();
 
             // There should exist num_threads elements in the vec
-            if value_ptr.len() == (num_threads as usize * 1000) { break; }
+            if value_ptr.len() == (num_threads as usize * 1000) {
+                break;
+            }
         }
     }
 }
