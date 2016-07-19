@@ -1,5 +1,5 @@
 [package]
-name = "crossbeam-hamt"
+name = "ctrie"
 version = "0.1.0"
 authors = ["Brandon Allard <ballard2626@gmail.com>", "Tim Ryan <id@timryan.org>"]
 publish = false
