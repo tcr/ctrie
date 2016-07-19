@@ -86,13 +86,13 @@ impl<K: Hash + PartialEq + Clone, V: Clone> HAMT<K, V> {
 
     /// Guaranteed to find any value existent in the hamt before and during
     /// the function call.
-    pub fn search(&self, key: K) -> Option<V> {
+    pub fn search<'a, R, F: Fn(&V) -> R + 'a>(&self, key: &K, callback: F) -> Option<R> {
         use self::HAMTInner::*;
 
         let mut pre_node = ProtectedPointer::new(&self.root);
         let mut cur_node = ProtectedPointer::new(&self.root);
 
-        let mut state = SearchState::new(self, &key);
+        let mut state = SearchState::new(self, key);
 
         'search: loop {
             cur_node.swap(&mut pre_node);
@@ -112,9 +112,44 @@ impl<K: Hash + PartialEq + Clone, V: Clone> HAMT<K, V> {
                         Err(_) => return None,
                     }
                 }
-                ValuedNode(ref k, ref v) if *k == key => return Some(v.clone()),
+                ValuedNode(ref k, ref v) if *k == *key => {
+                    return Some(callback(v));
+                }
                 _ => return None,
             };
+        }
+    }
+
+    /// Guaranteed to find any value existent in the hamt before and during
+    /// the function call.
+    pub fn each<F: Fn(&K, &V)>(&self, callback: F) {
+        use self::HAMTInner::*;
+
+        let mut cur_node = ProtectedPointer::new(&self.root);
+        let mut nodes = vec![self.root.clone()];
+
+        let mut idx = 0;
+        while idx < nodes.len() {
+            cur_node.set(&mut nodes[idx]);
+            cur_node.load();
+            idx += 1;
+
+            {
+                let ref target = *cur_node;
+                match target {
+                    &MappedNode(ref map, ref arr) |
+                    &DeletedMap(ref map, ref arr) |
+                    &RootedNode(ref map, ref arr) => {
+                        for item in arr {
+                            nodes.push(item.clone());
+                        }
+                    }
+                    &ValuedNode(ref k, ref v) => {
+                        callback(k, v);
+                    }
+                    _ => { }
+                }
+            }
         }
     }
 
